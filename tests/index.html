@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Antar — fillRect test</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-content: center;
+      gap: 1rem;
+      background: #0f1115;
+      color: #e8eaed;
+    }
+    canvas {
+      display: block;
+      background: #000;
+      box-shadow: 0 0 0 1px #2a2f3a;
+    }
+    #status {
+      max-width: 800px;
+      margin: 0 auto;
+      font-size: 0.95rem;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+    .ok { color: #7ddea0; }
+    .err { color: #ff8a80; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="800" height="600"></canvas>
+  <p id="status">Loading…</p>
+
+  <script type="module">
+    import init, { Antar } from "./antar.js";
+
+    const status = document.getElementById("status");
+    const log = (msg, cls = "") => {
+      status.textContent = msg;
+      status.className = cls;
+      console.log(msg);
+    };
+
+    async function main() {
+      if (!navigator.gpu) {
+        throw new Error("WebGPU not available — use Chrome/Edge with WebGPU enabled.");
+      }
+
+      await init();
+      const canvas = document.getElementById("canvas");
+      const ctx = await Antar.init(canvas);
+
+      // Dark background + red square 200×200
+      ctx.clear("#1a1a2e");
+      ctx.fillRect({
+        rect: { x: 300, y: 200, w: 200, h: 200 },
+        color: { r: 1, g: 0.2, b: 0.2, a: 1 },
+      });
+      ctx.present();
+
+      log(
+        "OK — drawn red square (300,200) 200×200 on background #1a1a2e.\n" +
+          "If you only see the background, check GPU / WebGPU console.",
+        "ok"
+      );
+    }
+
+    main().catch((err) => {
+      console.error(err);
+      log("Error: " + (err?.message || String(err)), "err");
+    });
+  </script>
+</body>
+</html>

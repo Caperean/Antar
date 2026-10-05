@@ -1,0 +1,12 @@
+Known / fixed issues with fillRect test:
+
+1. Rectangle pipeline had vertex stride = 8, but shared quad buffer has stride 16 (pos+uv).
+   Effect: distorted / invisible fillRect. Fixed in gpu/pipeline.rs.
+
+2. Old sprite shader: `color.a *= in.i_alpha` (VertexOutput field is `alpha`).
+   Fixed in shaders/sprite.wgsl + common.wgsl.
+
+How to run the test:
+  cd tests
+  python -m http.server 8080
+  Open http://localhost:8080/ in Chrome/Edge (WebGPU).
