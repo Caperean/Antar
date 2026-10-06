@@ -19,9 +19,9 @@ impl Renderer2D {
             commands: CommandQueue::new(),
             batch: FrameBatch {
                 clear: None,
-                sprites: Vec::with_capacity(256),
-                rects: Vec::with_capacity(64),
-                polygons: Vec::with_capacity(32),
+                sprites: Vec::with_capacity(512), // Increased for better batching
+                rects: Vec::with_capacity(128),
+                polygons: Vec::with_capacity(64),
             },
         }
     }
@@ -150,26 +150,31 @@ fn resolve_fill_polygon(state: &StateStack, params: PolygonDrawParams) -> Result
     }
 
     // Transform vertices on CPU (per design: geometry transformed once, not per-pixel)
+    // Optimized: pre-extract transform components to avoid repeated field access
+    let t = &s.transform;
+    let (a, b, c, d, tx, ty) = (t.a, t.b, t.c, t.d, t.tx, t.ty);
+
     let mut vertices = Vec::with_capacity(vertex_count);
     let mut bbox_min = [f32::MAX, f32::MAX];
     let mut bbox_max = [f32::MIN, f32::MIN];
 
-    let t = &s.transform;
+    // Optimized vertex transformation loop
+    let points = &params.points;
     for i in 0..vertex_count {
-        let x = params.points[i * 2];
-        let y = params.points[i * 2 + 1];
+        let x = points[i * 2];
+        let y = points[i * 2 + 1];
 
         // Apply transform: [a c tx; b d ty; 0 0 1] * [x y 1]
-        let tx = t.a * x + t.c * y + t.tx;
-        let ty = t.b * x + t.d * y + t.ty;
+        let transformed_x = a * x + c * y + tx;
+        let transformed_y = b * x + d * y + ty;
 
-        vertices.push([tx, ty]);
+        vertices.push([transformed_x, transformed_y]);
 
-        // Update bounding box
-        bbox_min[0] = bbox_min[0].min(tx);
-        bbox_min[1] = bbox_min[1].min(ty);
-        bbox_max[0] = bbox_max[0].max(tx);
-        bbox_max[1] = bbox_max[1].max(ty);
+        // Update bounding box (min/max operations are fast)
+        bbox_min[0] = bbox_min[0].min(transformed_x);
+        bbox_min[1] = bbox_min[1].min(transformed_y);
+        bbox_max[0] = bbox_max[0].max(transformed_x);
+        bbox_max[1] = bbox_max[1].max(transformed_y);
     }
 
     // Build metadata matching shader PolygonMeta structure

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = false
+wasm-opt = ["-O4", "--enable-math-native", "--enable-sign-ext", "--enable-simd"]
 
 [package.metadata.wasm-pack.profile.dev]
 wasm-opt = false
@@ -41,6 +41,7 @@ web-sys = { version = "0.3.102", features = [
     "gpu_buffer_usage",
     "GpuBufferBinding",
     "GpuBufferBindingLayout",
+    "GpuBufferBindingType",
     "GpuSampler",
     "GpuSamplerDescriptor",
     "GpuSamplerBindingLayout",
@@ -49,6 +50,8 @@ web-sys = { version = "0.3.102", features = [
     "gpu_texture_usage",
     "GpuTextureView",
     "GpuTextureBindingLayout",
+    "GpuTextureSampleType",
+    "GpuStorageTextureBindingLayout",
     "GpuShaderModule",
     "GpuShaderModuleDescriptor",
     "GpuRenderPipeline",

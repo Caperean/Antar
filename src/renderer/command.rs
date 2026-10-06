@@ -49,7 +49,7 @@ pub struct CommandQueue {
 impl CommandQueue {
     pub fn new() -> Self {
         Self {
-            commands: Vec::with_capacity(1024),
+            commands: Vec::with_capacity(2048), // Increased for better batching
         }
     }
 

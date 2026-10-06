@@ -23,7 +23,7 @@ use pipeline::Pipelines;
 use surface::configure_surface;
 use texture::TextureRegistry;
 
-const INSTANCE_CAPACITY: usize = 4096;
+const INSTANCE_CAPACITY: usize = 8192; // Increased for better batching
 /// Matches sprite pipeline: 18 × f32 attributes (was 15 — grew by 3 to carry
 /// the r/g/b tint channels down to the shader; see gpu/shaders/sprite.wgsl).
 const SPRITE_FLOATS: usize = 18;
@@ -32,8 +32,8 @@ const SPRITE_INSTANCE_STRIDE: usize = SPRITE_FLOATS * 4;
 const RECT_FLOATS: usize = 14;
 const RECT_INSTANCE_STRIDE: usize = RECT_FLOATS * 4;
 
-/// Polygon buffer capacities
-const MAX_POLYGONS: usize = 256;
+/// Polygon buffer capacities (increased for better batching)
+const MAX_POLYGONS: usize = 512;
 const MAX_POLYGON_VERTICES: usize = 256; // Matches shader MAX_VERTICES
 const POLYGON_META_STRIDE: usize = 64; // 16 floats × 4 bytes
 const VERTEX_STRIDE: usize = 8; // vec2<f32> = 2 floats × 4 bytes
