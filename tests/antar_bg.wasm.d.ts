@@ -1,0 +1,31 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_antar_free: (a: number, b: number) => void;
+export const antar_clear: (a: number, b: number, c: number) => void;
+export const antar_createTextureAtlas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+export const antar_drawImage: (a: number, b: any) => [number, number];
+export const antar_fillRect: (a: number, b: any) => [number, number];
+export const antar_init: (a: any) => any;
+export const antar_loadTexture: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+export const antar_present: (a: number) => [number, number];
+export const antar_restore: (a: number) => void;
+export const antar_rotate: (a: number, b: number) => [number, number];
+export const antar_save: (a: number) => void;
+export const antar_scale: (a: number, b: number, c: number) => [number, number];
+export const antar_setFillStyle: (a: number, b: number, c: number) => void;
+export const antar_setGlobalAlpha: (a: number, b: number) => [number, number];
+export const antar_translate: (a: number, b: number, c: number) => [number, number];
+export const antar_unloadTexture: (a: number, b: number) => void;
+export const wasm_bindgen__convert__closures_____invoke__h84d0a4314cfcc573: (a: number, b: number, c: any) => [number, number];
+export const wasm_bindgen__convert__closures_____invoke__h84d0a4314cfcc573_1: (a: number, b: number, c: any) => [number, number];
+export const wasm_bindgen__convert__closures_____invoke__h84d0a4314cfcc573_2: (a: number, b: number, c: any) => [number, number];
+export const wasm_bindgen__convert__closures_____invoke__h2f1bdec577821531: (a: number, b: number, c: any, d: any) => void;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_exn_store: (a: number) => void;
+export const __externref_table_alloc: () => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_destroy_closure: (a: number, b: number) => void;
+export const __externref_table_dealloc: (a: number) => void;
+export const __wbindgen_start: () => void;
