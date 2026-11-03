@@ -2,6 +2,13 @@
 name = "antar"
 version = "0.1.0"
 edition = "2021"
+description = "A 2D WebGPU renderer for the browser, written in Rust and compiled to WebAssembly"
+license = "MIT"
+repository = "https://github.com/Caperean/Antar"
+homepage = "https://github.com/Caperean/Antar"
+readme = "README.md"
+keywords = ["webgpu", "renderer", "2d", "graphics", "wasm"]
+categories = ["graphics", "wasm"]
 
 [package.metadata.wasm-pack.profile.release]
 # --enable-math-native is an emscripten/fastcomp flag that binaryen removed;

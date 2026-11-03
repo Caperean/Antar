@@ -109,7 +109,7 @@ ctx.fillRect({
 
 ### `fillPolygon(params)` → `void` (throws on invalid params)
 
-Fills an arbitrary polygon using SDF-based rasterization (compute shader).
+Fills an arbitrary polygon. The even-odd signed-distance fill is evaluated per pixel in a fragment shader, so polygons draw inside the normal render pass and blend with rectangles and sprites through the same premultiplied-alpha pipeline.
 
 ```js
 ctx.fillPolygon({
@@ -122,16 +122,21 @@ ctx.fillPolygon({
 });
 ```
 
-|| Field | Required | Notes |
-||-------|----------|-------|
-|| `points` | yes | Flat array of `[x, y, x, y, ...]` — at least 3 vertices (6 numbers) |
-|| `color` | no | RGBA in `[0, 1]`; default white |
-|| `renderMode` | no | `"fill"`, `"outline"`, or `"mask"`; default `"fill"` |
-|| `outlineWidth` | no | Outline thickness in pixels; only used in OUTLINE mode |
-|| `texture` | no | Texture handle for FILL mode; optional |
-|| `skipIfTransparent` | no | Performance hint; default `false` |
+| Field | Required | Notes |
+|-------|----------|-------|
+| `points` | yes | Flat array of `[x, y, x, y, ...]` — at least 3 vertices (6 numbers) |
+| `color` | no | RGBA in `[0, 1]`; default white |
+| `renderMode` | no | `"fill"`, `"outline"`, or `"mask"`; default `"fill"` |
+| `outlineWidth` | no | Outline thickness in pixels; only used in OUTLINE mode |
+| `texture` | no | Texture handle for FILL mode; optional |
+| `skipIfTransparent` | no | Performance hint; default `false` |
 
-**Note:** Polygon rendering infrastructure is production-ready on the CPU side. GPU execution via compute shader requires web-sys with `GpuComputePipeline` support (pending web-sys update). Currently, polygons are queued, processed, and data is uploaded to storage buffers, but actual rasterization is pending compute shader integration.
+A vertex list shorter than 3 vertices throws. Consecutive polygons sharing a
+texture are batched into a single draw call.
+
+**Draw order:** `present()` groups instances by type, so all rectangles, then
+all sprites, then all polygons are drawn — not the order you issued them in. A
+polygon drawn first can therefore cover a sprite drawn afterwards.
 
 ---
 
@@ -242,33 +247,33 @@ These methods control global polygon rendering behavior (bypass command queue, w
 
 Sets debug visualization mode for polygon rendering.
 
-|| Argument | Type | Description |
-||----------|------|-------------|
-|| `mode` | `number` | `0` = none, `1` = SDF visualization, `2` = UV debug, `3` = edge debug |
+| Argument | Type | Description |
+|----------|------|-------------|
+| `mode` | `number` | `0` = none, `1` = SDF visualization, `2` = UV debug, `3` = edge debug |
 
 ### `setOutputGamma(gamma)`
 
 Sets gamma correction for polygon output (applied only when debug mode is none).
 
-|| Argument | Type | Description |
-||----------|------|-------------|
-|| `gamma` | `number` | Gamma value (e.g., `2.2` for sRGB, `1.0` for no correction) |
+| Argument | Type | Description |
+|----------|------|-------------|
+| `gamma` | `number` | Gamma value (e.g., `2.2` for sRGB, `1.0` for no correction) |
 
 ### `setMinPolygonAreaPx(area)`
 
 Sets minimum screen-space area threshold for polygon culling.
 
-|| Argument | Type | Description |
-||----------|------|-------------|
-|| `area` | `number` | Minimum area in pixels²; polygons below this are skipped |
+| Argument | Type | Description |
+|----------|------|-------------|
+| `area` | `number` | Minimum area in pixels²; polygons below this are skipped |
 
 ### `setEdgeSoftness(softness)`
 
 Controls anti-aliasing edge softness for polygon SDF rendering.
 
-|| Argument | Type | Description |
-||----------|------|-------------|
-|| `softness` | `number` | Edge softness in pixels; higher = smoother edges |
+| Argument | Type | Description |
+|----------|------|-------------|
+| `softness` | `number` | Edge softness in pixels; higher = smoother edges |
 
 ---
 
