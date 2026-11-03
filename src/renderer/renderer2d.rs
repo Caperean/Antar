@@ -140,6 +140,19 @@ fn resolve_fill_rect(state: &StateStack, params: RectDrawParams) -> RectInstance
     }
 }
 
+/// Count vertices and reject degenerate polygons.
+///
+/// Kept free of `JsValue` on purpose: constructing one panics outside wasm32,
+/// so folding the check into the `Result<_, JsValue>` would make it untestable
+/// on the host.
+fn checked_vertex_count(points: &[f32]) -> Result<usize, &'static str> {
+    let count = points.len() / 2;
+    if count < 3 {
+        return Err("polygon must have at least 3 vertices");
+    }
+    Ok(count)
+}
+
 fn resolve_fill_polygon(
     state: &StateStack,
     params: PolygonDrawParams,
@@ -147,10 +160,7 @@ fn resolve_fill_polygon(
     let s = state.current();
 
     // Parse flat points array into vertices
-    let vertex_count = params.points.len() / 2;
-    if vertex_count < 3 {
-        return Err(JsValue::from_str("polygon must have at least 3 vertices"));
-    }
+    let vertex_count = checked_vertex_count(&params.points).map_err(JsValue::from_str)?;
 
     // Transform vertices on CPU (per design: geometry transformed once, not per-pixel)
     // Optimized: pre-extract transform components to avoid repeated field access
@@ -209,4 +219,127 @@ fn resolve_fill_polygon(
         vertices,
         texture_id: params.texture,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::renderer::types::PolygonRenderMode;
+
+    fn params(points: Vec<f32>) -> PolygonDrawParams {
+        PolygonDrawParams {
+            points,
+            color: Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            },
+            render_mode: PolygonRenderMode::Fill,
+            outline_width: 0.0,
+            texture: None,
+            skip_if_transparent: false,
+        }
+    }
+
+    fn triangle() -> Vec<f32> {
+        vec![10.0, 20.0, 110.0, 20.0, 60.0, 220.0]
+    }
+
+    #[test]
+    fn rejects_polygons_with_fewer_than_three_vertices() {
+        // Two vertices, and an empty point list.
+        assert!(checked_vertex_count(&[0.0, 0.0, 1.0, 1.0]).is_err());
+        assert!(checked_vertex_count(&[]).is_err());
+
+        // An odd-length list truncates to two vertices, so it must also fail.
+        assert!(checked_vertex_count(&[0.0, 0.0, 1.0, 1.0, 2.0]).is_err());
+    }
+
+    #[test]
+    fn accepts_three_or_more_vertices() {
+        assert_eq!(checked_vertex_count(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0]), Ok(3));
+        let many: Vec<f32> = (0..20).map(|i| i as f32).collect();
+        assert_eq!(checked_vertex_count(&many), Ok(10));
+    }
+
+    #[test]
+    fn passes_vertices_through_and_derives_the_bbox_when_untransformed() {
+        let state = StateStack::new();
+        let polygon = resolve_fill_polygon(&state, params(triangle())).unwrap();
+
+        assert_eq!(polygon.meta.vertex_count, 3);
+        assert_eq!(
+            polygon.vertices,
+            vec![[10.0, 20.0], [110.0, 20.0], [60.0, 220.0]]
+        );
+        assert_eq!(polygon.meta.bbox_min, [10.0, 20.0]);
+        assert_eq!(polygon.meta.bbox_max, [110.0, 220.0]);
+
+        // The transform is folded into the vertices, so the metadata must
+        // carry identity — the shader relies on this and does not re-apply it.
+        assert_eq!(polygon.meta.translate, [0.0, 0.0]);
+        assert_eq!(polygon.meta.scale, [1.0, 1.0]);
+        assert_eq!(polygon.meta.rotation, 0.0);
+    }
+
+    #[test]
+    fn applies_the_current_transform_to_vertices_and_bbox() {
+        let mut state = StateStack::new();
+        state.translate(5.0, -3.0);
+
+        let polygon =
+            resolve_fill_polygon(&state, params(vec![0.0, 0.0, 10.0, 0.0, 0.0, 10.0])).unwrap();
+
+        assert_eq!(polygon.vertices[0], [5.0, -3.0]);
+        assert_eq!(polygon.vertices[1], [15.0, -3.0]);
+        assert_eq!(polygon.vertices[2], [5.0, 7.0]);
+        assert_eq!(polygon.meta.bbox_min, [5.0, -3.0]);
+        assert_eq!(polygon.meta.bbox_max, [15.0, 7.0]);
+    }
+
+    #[test]
+    fn bbox_covers_every_transformed_vertex() {
+        let mut state = StateStack::new();
+        state.translate(100.0, 100.0);
+        state.scale(2.0, 3.0);
+
+        let polygon =
+            resolve_fill_polygon(&state, params(vec![-4.0, -5.0, 6.0, -5.0, -4.0, 7.0])).unwrap();
+
+        for v in &polygon.vertices {
+            assert!(v[0] >= polygon.meta.bbox_min[0]);
+            assert!(v[1] >= polygon.meta.bbox_min[1]);
+            assert!(v[0] <= polygon.meta.bbox_max[0]);
+            assert!(v[1] <= polygon.meta.bbox_max[1]);
+        }
+        assert_eq!(polygon.meta.bbox_min, [92.0, 85.0]);
+        assert_eq!(polygon.meta.bbox_max, [112.0, 121.0]);
+    }
+
+    #[test]
+    fn folds_global_alpha_into_the_tint() {
+        let mut state = StateStack::new();
+        state.set_global_alpha(0.5);
+
+        let polygon = resolve_fill_polygon(&state, params(triangle())).unwrap();
+
+        assert_eq!(polygon.meta.tint_color.a, 0.5);
+        assert_eq!(polygon.meta.tint_color.r, 1.0);
+    }
+
+    #[test]
+    fn records_the_outline_and_skip_flags() {
+        let state = StateStack::new();
+        let mut p = params(triangle());
+        p.outline_width = 6.0;
+        p.skip_if_transparent = true;
+        p.render_mode = PolygonRenderMode::Outline;
+
+        let polygon = resolve_fill_polygon(&state, p).unwrap();
+
+        assert_eq!(polygon.meta.outline_width, 6.0);
+        assert_eq!(polygon.meta.flags, 1);
+        assert_eq!(polygon.meta.render_mode, PolygonRenderMode::Outline);
+    }
 }

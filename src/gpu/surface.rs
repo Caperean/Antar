@@ -6,6 +6,14 @@ use web_sys::{
 
 pub const SURFACE_FORMAT: GpuTextureFormat = GpuTextureFormat::Bgra8unorm;
 
+fn build_config(device: &GpuDevice) -> GpuCanvasConfiguration {
+    // No explicit `size`: the texture tracks the canvas dimensions, so a resize
+    // does not by itself invalidate the configuration.
+    let cfg = GpuCanvasConfiguration::new(device, SURFACE_FORMAT);
+    cfg.set_alpha_mode(web_sys::GpuCanvasAlphaMode::Premultiplied);
+    cfg
+}
+
 pub fn configure_surface(
     canvas: &HtmlCanvasElement,
     device: &GpuDevice,
@@ -15,9 +23,17 @@ pub fn configure_surface(
         .ok_or_else(|| JsValue::from_str("failed to get WebGPU context"))?
         .dyn_into()?;
 
-    let cfg = GpuCanvasConfiguration::new(device, SURFACE_FORMAT);
-    cfg.set_alpha_mode(web_sys::GpuCanvasAlphaMode::Premultiplied);
-    ctx.configure(&cfg)?;
+    ctx.configure(&build_config(device))?;
 
     Ok(ctx)
+}
+
+/// Re-apply the configuration after the canvas changed size.
+///
+/// The projection matrix is derived from the stored dimensions, so a stale size
+/// stretches every draw even though the surface itself would follow the canvas.
+/// Reconfiguring also covers implementations that snapshot the size when the
+/// context was first configured.
+pub fn reconfigure(device: &GpuDevice, ctx: &GpuCanvasContext) -> Result<(), JsValue> {
+    ctx.configure(&build_config(device))
 }

@@ -90,3 +90,59 @@ pub fn ortho_matrix(width: u32, height: u32) -> [f32; 16] {
         1.0,
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Project a pixel coordinate the way the shader does:
+    /// `uniforms.proj * vec4(x, y, 0, 1)`, with the matrix column-major.
+    fn project(m: &[f32; 16], x: f32, y: f32) -> (f32, f32) {
+        (m[0] * x + m[4] * y + m[12], m[1] * x + m[5] * y + m[13])
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 1e-6,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn ortho_maps_canvas_corners_to_ndc_corners() {
+        let m = ortho_matrix(200, 100);
+
+        // Screen y grows downward, NDC y grows upward — hence the flip.
+        let (x, y) = project(&m, 0.0, 0.0);
+        assert_close(x, -1.0);
+        assert_close(y, 1.0);
+
+        let (x, y) = project(&m, 200.0, 0.0);
+        assert_close(x, 1.0);
+        assert_close(y, 1.0);
+
+        let (x, y) = project(&m, 0.0, 100.0);
+        assert_close(x, -1.0);
+        assert_close(y, -1.0);
+
+        let (x, y) = project(&m, 200.0, 100.0);
+        assert_close(x, 1.0);
+        assert_close(y, -1.0);
+    }
+
+    #[test]
+    fn ortho_maps_the_canvas_centre_to_the_origin() {
+        let m = ortho_matrix(200, 100);
+        let (x, y) = project(&m, 100.0, 50.0);
+        assert_close(x, 0.0);
+        assert_close(y, 0.0);
+    }
+
+    #[test]
+    fn ortho_scales_linearly_between_the_edges() {
+        let m = ortho_matrix(200, 100);
+        let (x, y) = project(&m, 50.0, 25.0);
+        assert_close(x, -0.5);
+        assert_close(y, 0.5);
+    }
+}

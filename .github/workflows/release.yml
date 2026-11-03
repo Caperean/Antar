@@ -9,9 +9,54 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # A tag push is not a branch push, so CI's `push: branches:` trigger does not
+  # fire here. Without this job a release would publish whatever the tag points
+  # at, whether or not it compiles, lints, or passes its tests.
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # .cargo/config.toml makes wasm32-unknown-unknown the default target, so its
+      # std must be installed. Tests build for the host triple instead — wasm test
+      # binaries cannot execute on the runner.
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown --target x86_64-unknown-linux-gnu --component rustfmt --component clippy
+          rustup default stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: Run cargo clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run cargo test
+        run: cargo test --target x86_64-unknown-linux-gnu
+
   build:
     name: Build Release
     runs-on: ubuntu-latest
+    needs: [verify]
     steps:
       - uses: actions/checkout@v4
 
@@ -22,8 +67,19 @@ jobs:
           rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
           rustup default stable
 
+      # `cargo install wasm-pack` compiles from source and adds minutes to every
+      # release; the binary is stable across runs, so cache it.
+      - name: Cache wasm-pack
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-pack
+          key: ${{ runner.os }}-wasm-pack-0.13.1
+
       - name: Install wasm-pack
-        run: cargo install wasm-pack
+        run: |
+          if ! command -v wasm-pack >/dev/null 2>&1; then
+            cargo install wasm-pack --locked
+          fi
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -69,7 +125,8 @@ jobs:
           path: pkg/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        # v1 is unmaintained; v2 runs on current Node runtimes.
+        uses: softprops/action-gh-release@v2
         with:
           files: pkg/*
           draft: false

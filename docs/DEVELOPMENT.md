@@ -49,7 +49,7 @@ src/
     ├── texture.rs        # TextureRegistry
     ├── device.rs / surface.rs / pipeline.rs / buffers.rs
     ├── bindgroups.rs / encoder.rs
-    └── shaders/          # common.wgsl, sprite.wgsl, rect.wgsl, rasterizer.wgsl
+    └── shaders/          # common.wgsl, sprite.wgsl, rect.wgsl, polygon.wgsl
 
 docs/
 ├── API.md                # Public renderer commands (this is for consumers)
@@ -147,7 +147,8 @@ Keep validation in `from_js` / API (finite floats, lengths). Prefer `Result` ove
 |------|-------|
 | New shader | `gpu/shaders/*.wgsl` + concatenate with `common.wgsl` in `pipeline.rs` |
 | New render pipeline | `gpu/pipeline.rs` |
-| New compute pipeline | `gpu/pipeline.rs` (see `build_rasterizer_pipeline`) |
+| Polygon rendering | `gpu/pipeline.rs::build_polygon_pipeline` + `shaders/polygon.wgsl` |
+| WGSL validation | `naga <file.wgsl>` — cargo does **not** type-check shaders |
 | New buffer layout | Keep stride in sync with `gpu/mod.rs` float packing **and** vertex attributes |
 | Texture storage | Only `gpu/texture.rs` / `GpuContext::load_texture` |
 | Storage buffers | `gpu/buffers.rs::create_storage_buffer` |
