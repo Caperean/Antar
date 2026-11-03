@@ -11,10 +11,7 @@ use super::surface::SURFACE_FORMAT;
 const COMMON_WGSL: &str = include_str!("shaders/common.wgsl");
 const SPRITE_BODY: &str = include_str!("shaders/sprite.wgsl");
 const RECT_BODY: &str = include_str!("shaders/rect.wgsl");
-// Consumed only by the compute rasterizer, which is not wired up yet — see the
-// "Pending" section of POLYGON_STATUS.md. Kept so the integration can land as-is.
-#[allow(dead_code)]
-const RASTERIZER_BODY: &str = include_str!("shaders/rasterizer.wgsl");
+const POLYGON_BODY: &str = include_str!("shaders/polygon.wgsl");
 
 fn sprite_wgsl() -> String {
     format!("{COMMON_WGSL}\n{SPRITE_BODY}")
@@ -24,17 +21,14 @@ fn rect_wgsl() -> String {
     format!("{COMMON_WGSL}\n{RECT_BODY}")
 }
 
-// Paired with RASTERIZER_BODY above; both wait on the compute pipeline.
-#[allow(dead_code)]
-fn rasterizer_wgsl() -> String {
-    RASTERIZER_BODY.to_string()
+fn polygon_wgsl() -> String {
+    format!("{COMMON_WGSL}\n{POLYGON_BODY}")
 }
 
 pub struct Pipelines {
     pub sprite: GpuRenderPipeline,
     pub rect: GpuRenderPipeline,
-    // Compute pipeline requires web-sys with GpuComputePipeline support
-    // When available, uncomment build_rasterizer_pipeline below
+    pub polygon: GpuRenderPipeline,
 }
 
 impl Pipelines {
@@ -42,10 +36,12 @@ impl Pipelines {
         device: &GpuDevice,
         uniform_bgl: &GpuBindGroupLayout,
         texture_bgl: &GpuBindGroupLayout,
+        polygon_bgl: &GpuBindGroupLayout,
     ) -> Result<Self, JsValue> {
         Ok(Self {
             sprite: build_sprite_pipeline(device, uniform_bgl, texture_bgl)?,
             rect: build_rect_pipeline(device, uniform_bgl)?,
+            polygon: build_polygon_pipeline(device, uniform_bgl, polygon_bgl, texture_bgl)?,
         })
     }
 }
@@ -174,27 +170,39 @@ fn premul_alpha_blend_component() -> web_sys::GpuBlendComponent {
     c
 }
 
-// Compute pipeline for polygon rasterization (rasterizer.wgsl)
-// Requires web-sys version with GpuComputePipeline support
-// When available, this will be uncommented and integrated:
-// fn build_rasterizer_pipeline(
-//     device: &GpuDevice,
-//     uniform_bgl: &GpuBindGroupLayout,
-//     texture_bgl: &GpuBindGroupLayout,
-// ) -> Result<GpuComputePipeline, JsValue> {
-//     let source = rasterizer_wgsl();
-//     let shader = device.create_shader_module(&web_sys::GpuShaderModuleDescriptor::new(&source));
-//
-//     let layout_desc = GpuPipelineLayoutDescriptor::new(&[
-//         JsOption::from_option(Some(uniform_bgl.clone())),
-//         JsOption::from_option(Some(texture_bgl.clone())),
-//     ]);
-//     let layout: GpuPipelineLayout = device.create_pipeline_layout(&layout_desc);
-//
-//     let mut cs = web_sys::GpuComputeState::new(&shader);
-//     cs.set_entry_point("main");
-//
-//     let mut desc = GpuComputePipelineDescriptor::new(&layout, &cs);
-//
-//     device.create_compute_pipeline(&desc)
-// }
+// Polygon pipeline: one quad per polygon, positioned over its bounding box in
+// the vertex shader; the fragment shader evaluates the even-odd SDF.
+pub fn build_polygon_pipeline(
+    device: &GpuDevice,
+    uniform_bgl: &GpuBindGroupLayout,
+    polygon_bgl: &GpuBindGroupLayout,
+    texture_bgl: &GpuBindGroupLayout,
+) -> Result<GpuRenderPipeline, JsValue> {
+    let source = polygon_wgsl();
+    let shader = device.create_shader_module(&web_sys::GpuShaderModuleDescriptor::new(&source));
+
+    let layout_desc = GpuPipelineLayoutDescriptor::new(&[
+        JsOption::from_option(Some(uniform_bgl.clone())),
+        JsOption::from_option(Some(polygon_bgl.clone())),
+        JsOption::from_option(Some(texture_bgl.clone())),
+    ]);
+    let layout: GpuPipelineLayout = device.create_pipeline_layout(&layout_desc);
+
+    // Buffer 0: the shared unit quad, stride 16. Only `pos` is read — the
+    // fragment shader gets its UVs back from the bounding box it is given.
+    let a0 = GpuVertexAttribute::new(web_sys::GpuVertexFormat::Float32x2, 0, 0);
+    let vb0 = GpuVertexBufferLayout::new(16, &[a0]);
+
+    let vs = GpuVertexState::new(&shader);
+    vs.set_entry_point("vs_main");
+    vs.set_buffers(&[JsOption::from_option(Some(vb0))]);
+
+    let fs = GpuFragmentState::new(&shader, &make_color_targets()?);
+    fs.set_entry_point("fs_main");
+
+    let desc = GpuRenderPipelineDescriptor::new(&layout, &vs);
+    desc.set_fragment(&fs);
+    desc.set_primitive(&web_sys::GpuPrimitiveState::new());
+
+    device.create_render_pipeline(&desc)
+}

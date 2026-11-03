@@ -171,9 +171,9 @@ pub struct PolygonMeta {
 pub struct PolygonInstance {
     pub meta: PolygonMeta,
     pub vertices: Vec<[f32; 2]>, // Already transformed to screen space
-    /// Optional FILL-mode texture (documented in docs/API.md). Not read until the
-    /// compute rasterizer handles textured polygons.
-    #[allow(dead_code)]
+    /// Optional FILL-mode texture (documented in docs/API.md). Read by
+    /// `GpuContext::execute`, which batches consecutive polygons sharing a
+    /// texture into one draw call.
     pub texture_id: Option<TextureHandle>,
 }
 

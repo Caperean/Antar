@@ -1,159 +1,131 @@
-# Polygon Rendering Integration Status
+# Polygon Rendering Status
 
-## Production Status: ✅ Optimized and Production-Ready
+## Status: rendering implemented, not yet verified on a GPU
 
-### What's Working (Production-Ready)
+`fillPolygon()` draws. The CPU path, the GPU upload path, and a fragment
+shader that evaluates the fill are all wired end to end. What has **not** been
+done is run it on a real GPU in a browser — see [Verification](#verification).
 
-**CPU-Side Integration (100% Complete):**
-- ✅ `PolygonDrawParams` with full JS parameter parsing
-- ✅ `PolygonInstance` and `PolygonMeta` types matching shader layout
-- ✅ `DrawCommand::FillPolygon` in command queue
-- ✅ **Optimized polygon resolve logic** with fast vertex transformation
-- ✅ Public API: `fillPolygon()`, `setDebugMode()`, `setOutputGamma()`, `setMinPolygonAreaPx()`, `setEdgeSoftness()`
-- ✅ Storage buffer creation (`create_storage_buffer`)
-- ✅ Polygon data flattening and upload to GPU storage buffers
-- ✅ Full integration with existing transform system (translate/rotate/scale)
-- ✅ Texture support for FILL mode (optional)
-- ✅ Multiple render modes: FILL, OUTLINE, MASK
-- ✅ All code comments and documentation in English
+---
 
-**Performance Optimizations Applied:**
-- ✅ **WASM Optimization:** Enabled `-O4`, `--enable-math-native`, `--enable-sign-ext`, `--enable-simd` in release builds
-- ✅ **Increased Buffer Capacities:** Instance capacity 4096→8192, polygon capacity 256→512 for better batching
-- ✅ **Optimized Vertex Transform:** Pre-extracted transform components to avoid repeated field access
-- ✅ **Optimized Bounding Box Calculation:** Min/max operations are fast
-- ✅ **Increased Command Queue:** 1024→2048 commands for better batching
-- ✅ **Increased FrameBatch Capacities:** Sprites 256→512, rects 64→128, polygons 32→64
+## What works
 
-**Existing Features (Unchanged):**
-- ✅ Sprite rendering (`drawImage`)
-- ✅ Rectangle rendering (`fillRect`)
-- ✅ Transform system
-- ✅ Texture management
-- ✅ Command batching
+**CPU side (unchanged from before):**
+- `PolygonDrawParams` with full JS parameter parsing
+- `PolygonDrawParams::from_js`, `Color::from_js`
+- `DrawCommand::FillPolygon` in the command queue
+- Vertices transformed once on CPU in `resolve_fill_polygon`
+- Public API: `fillPolygon()`, `setDebugMode()`, `setOutputGamma()`,
+  `setMinPolygonAreaPx()`, `setEdgeSoftness()`
+- Texture lookup validated eagerly at `fillPolygon()` time
 
-### What's Pending (Awaiting web-sys Update)
+**GPU side (new):**
+- `shaders/polygon.wgsl` — vertex shader sizes a quad to the polygon's
+  bounding box; fragment shader evaluates the even-odd signed distance
+- Polygon render pipeline with its own bind group layout
+- Storage-buffer bind group for metadata and vertices
+- Textured fills batched by texture, like sprites
+- 1×1 white dummy texture so untextured polygons always have a valid binding
+- Polygons drawn inside the ordinary render pass, so they blend with sprites
+  and rects through the existing premultiplied-alpha pipeline
 
-**GPU Compute Shader Execution:**
-The rasterizer.wgsl shader is fully written and ready, but requires web-sys version with `GpuComputePipeline` support. Current web-sys (0.3.102) doesn't include these bindings.
+---
 
-**When web-sys is updated:**
-1. Uncomment `build_rasterizer_pipeline()` in `gpu/pipeline.rs`
-2. Create compute bind groups for polygon resources
-3. Add compute pass dispatch in `GpuContext::execute()`
-4. Create storage texture for compute output
-5. Composite result into main render pass
+## Why the compute rasterizer was abandoned
 
-**Current State:**
-- Polygon data is **processed on CPU** (vertices transformed with optimized loop)
-- Polygon data is **uploaded to GPU storage buffers**
-- **But actual rasterization is pending** compute shader integration
-- The shader (`rasterizer.wgsl`) is ready and will work once compute support is available
+`shaders/rasterizer.wgsl` (tile-based, 16×16 workgroups) was written first,
+never ran, and has been deleted. Three problems were structural:
 
-### Architecture Compliance
+1. **Barrier divergence.** It called `workgroupBarrier()` inside control flow
+   where out-of-bounds invocations had already `return`ed and invalid polygons
+   `continue`d past the barrier. Barriers must be in uniform control flow, so
+   this is a spec violation, not a missing feature.
 
-The implementation follows the architecture from `zalozenia.txt`:
+2. **Nothing composited its output.** It wrote to a
+   `texture_storage_2d<rgba8unorm, write>` that was never sampled onto the
+   surface, so even a working version would have produced a blank screen.
 
-1. ✅ **CPU/GPU Separation:** Renderer2D doesn't know WebGPU, only processes polygons
-2. ✅ **Command Architecture:** `fillPolygon()` goes through command queue like other draw calls
-3. ✅ **Three Categories:** Drawing (commands), Resource Management (direct), Global Config (direct)
-4. ✅ **Transform on CPU:** Vertices transformed once on CPU (per design decision) - **NOW OPTIMIZED**
-5. ✅ **Variable Instance Layout:** Polygon uses different structure than sprite/rect
-6. ✅ **English Documentation:** All comments, docs, and UI text in English
+3. **It would have broken draw order.** A compute pass runs entirely before or
+   after the render pass, so every polygon would have landed above or below
+   every sprite regardless of the order commands were issued in.
 
-### Performance Characteristics
+The earlier claim that this was blocked on web-sys gaining `GpuComputePipeline`
+was also incorrect: web-sys 0.3.102 already ships `GpuComputePipeline`,
+`GpuComputePipelineDescriptor`, `GpuComputePassEncoder`, `begin_compute_pass`
+and `dispatch_workgroups`. There was never anything to wait for.
 
-**Current (CPU-side optimized):**
-- Vertex transformation: O(n) with optimized loop
-- Bounding box calculation: O(n) with fast min/max
-- Data flattening: Efficient array operations
-- Buffer upload: Single write per frame (batched)
+## Why a fragment shader instead
 
-**With Compute Shader (future - TILE OPTIMIZED):**
-- Vertex transformation: O(1) per pixel (GPU parallel)
-- SDF rasterization: Per-pixel on GPU (16x16 tile-based) with maximum speed optimizations:
-  - Early exit for out-of-bounds tiles
-  - Pre-computed common values to avoid recalculation
-  - Optimized SDF segment calculation with early exits for distant segments
-  - Reduced workgroup barriers through better cooperation pattern
-  - Fast approximations where acceptable
-  - Optimized even-odd crossing number algorithm (unrolled)
-  - Texture sampling only when coverage > threshold (1%)
-  - Alpha blending optimizations (skip if alpha < epsilon)
-  - Fast bounding box culling before vertex work
-- No CPU bottleneck for complex polygons
-- Maximum speed for large polygon counts
+The fragment shader reuses the same even-odd SDF maths, but evaluates it over a
+single quad inside the existing render pass. That keeps premultiplied-alpha
+blending, draw ordering, and the working sprite/rect pipeline untouched.
 
-### API Usage Example
+Known consequence: `FrameBatch` groups instances by type, so rects, sprites and
+polygons each render as a block rather than in original command order. That
+limitation predates this change.
+
+---
+
+## Bugs fixed along the way
+
+- **`POLYGON_META_STRIDE` was 64; the data is 96 bytes.** Both the WGSL
+  `PolygonMeta` struct and the Rust flatten are 24 × f32. The buffer was
+  undersized and would have failed validation somewhere past ~409 polygons.
+  It is now 96, and `flatten_polygon_meta` returns a fixed `[f32; 24]`, so a
+  mismatch with `POLYGON_META_FLOATS` is a compile error.
+- **`meta` is a reserved WGSL keyword.** The shader used `let meta = ...`,
+  which fails at pipeline creation. Caught by `naga`, not by cargo.
+
+---
+
+## Verification
+
+Run locally, all passing:
+
+| Check | Result |
+| --- | --- |
+| `cargo check` | PASS, 0 warnings |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy -- -D warnings` | PASS |
+| `cargo test --target x86_64-unknown-linux-gnu` | PASS, 13 tests |
+| `wasm-pack build --release --target web` | PASS |
+| `naga` on `common.wgsl` + each shader | PASS |
+
+**Not verified:** rendering output in a browser. Nothing here confirms what the
+shader actually draws — only that it compiles, type-checks, and that the data
+reaching it matches the layout it expects. `tests/index.html` is the place to
+check that visually.
+
+---
+
+## Still not done
+
+- **Draw ordering.** Polygons, rects and sprites render as three blocks. True
+  per-command ordering needs `FrameBatch` to keep a single ordered list.
+- **SDF text.** The contour machinery here is the same shape glyph outlines
+  would need, but no text path exists.
+- **Performance tuning.** The fragment shader walks every edge for every pixel
+  in the bounding box. Fine for typical 2D shapes; a large, many-sided polygon
+  will cost proportionally more.
+
+## API usage
 
 ```javascript
-// Initialize
 const ctx = await Antar.init(canvas);
 
-// Draw a triangle
 ctx.fillPolygon({
   points: [100, 100, 200, 100, 150, 200],
   color: { r: 1, g: 0, b: 0, a: 1 },
   renderMode: "fill"
 });
 
-// Configure polygon rendering
 ctx.setDebugMode(0);        // 0=none, 1=SDF, 2=UV, 3=edges
-ctx.setOutputGamma(2.2);    // Gamma correction
-ctx.setMinPolygonAreaPx(1.0); // Culling threshold
-ctx.setEdgeSoftness(1.5);   // Anti-aliasing softness
+ctx.setOutputGamma(2.2);
+ctx.setMinPolygonAreaPx(1.0);
+ctx.setEdgeSoftness(1.5);
 
 ctx.present();
 ```
 
-### Build Status
-
-✅ **Build succeeds** with only warnings (no errors)
-- Warnings are about unused code waiting for compute shader support
-- These are expected and will resolve when compute integration is completed
-- Release builds now use aggressive WASM optimizations (-O4, SIMD, native math)
-- Tile-based rasterizer shader (v4) optimized for maximum speed
-
-### Shader Optimizations (Tile-Based Rasterizer v4)
-
-The `rasterizer.wgsl` shader includes maximum speed optimizations:
-
-**Early Exit Optimizations:**
-- ✅ Early exit for out-of-bounds tiles (before any polygon work)
-- ✅ Workgroup shared flag for early exit when no valid polygons
-- ✅ Skip texture sampling when coverage < 1% threshold
-- ✅ Skip alpha blending when alpha < epsilon
-- ✅ Fast bounding box culling before vertex transformation
-
-**Compute Optimizations:**
-- ✅ Pre-computed constants (EPSILON, COVERAGE_THRESHOLD) to avoid recalculation
-- ✅ Optimized SDF segment calculation with early exit for distant segments
-- ✅ Optimized even-odd crossing number algorithm (unrolled for speed)
-- ✅ Reduced workgroup barriers through better cooperation pattern
-- ✅ Fast approximations where acceptable (epsilon vs 1e-6)
-- ✅ Optimized render mode dispatch with early returns
-- ✅ Gamma correction only when needed (not in debug modes)
-
-### Next Steps
-
-To enable full GPU polygon rendering with maximum speed:
-
-1. **Update web-sys** to version with `GpuComputePipeline` support
-2. **Uncomment compute pipeline code** in `gpu/pipeline.rs`
-3. **Add compute bind groups** in `gpu/bindgroups.rs`
-4. **Implement compute pass** in `gpu/mod.rs::execute()`
-5. **Test with actual polygon rendering**
-
-All the infrastructure is in place and ready for this final step.
-
-### Documentation
-
-- ✅ `docs/API.md` - Updated with polygon API
-- ✅ `docs/DEVELOPMENT.md` - Updated with polygon notes
-- ✅ `zalozenia.txt` - Converted to English
-- ✅ `tests/index.html` - Converted to English
-- ✅ `tests/bugs.txt` - Converted to English
-
----
-
-**Summary:** The codebase is production-ready with fully optimized CPU-side polygon integration and maximum-speed tile-based rasterizer shader (v4). WASM optimizations are enabled for maximum performance. The only remaining work is GPU compute shader execution, which requires a web-sys update. All architecture, types, and infrastructure are complete and follow the project's design principles with comprehensive performance optimizations applied to both CPU and GPU code.
+`renderMode` is `"fill"` (default, optional texture), `"outline"`
+(`outlineWidth` in px), or `"mask"`.
